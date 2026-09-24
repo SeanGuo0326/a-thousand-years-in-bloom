@@ -18,9 +18,9 @@ from pathlib import Path
 
 import requests
 
-URL = ("https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
-       "?dataType=CLMTEMP&rformat=csv&station=HKO&year=2026")      # CHANGE ME
-FILE = "hko-daily-mean-temperature-2026.csv"                          # CHANGE ME: say what it is,
+URL = "https://gist.githubusercontent.com/thulse/597ef42bbca981508545c053a0ba7775/raw/7558f6576b8d520abb85b449542e59da8372edb9/SakuraData4.csv"
+
+FILE = "SakuraData4.csv"
                                                                       # keep the publisher's extension
 HERE = Path(__file__).parent
 DATA = HERE / "data"
