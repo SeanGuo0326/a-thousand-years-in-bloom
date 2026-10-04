@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["matplotlib", "numpy"]
+# dependencies = ["matplotlib", "numpy", "pillow"]
 # ///
 
 """
@@ -24,6 +24,9 @@ Instead of creating thousands of individual
 Ellipse patches every frame, blossoms are rendered
 with one reusable scatter collection.
 
+Output:
+    out/bloom-animation.gif
+
 Run:
     uv run animate.py
 """
@@ -35,7 +38,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.path import Path as MarkerPath
 
 
@@ -45,6 +48,11 @@ from matplotlib.path import Path as MarkerPath
 
 HERE = Path(__file__).parent
 DATA = HERE / "data" / "SakuraData4.csv"
+
+OUTPUT_DIR = HERE / "out"
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+GIF_PATH = OUTPUT_DIR / "bloom-animation.gif"
 
 
 # --------------------------------------------------
@@ -559,7 +567,7 @@ initial_colors = np.column_stack(
 )
 
 
-# All 827 flowers are contained inside ONE
+# All flowers are contained inside ONE
 # reusable scatter collection.
 
 flowers = ax.scatter(
@@ -647,9 +655,6 @@ def hide_flowers():
 
 def update_bloom(current_year):
 
-    # Age of every historical record
-    # relative to the current year.
-
     age = (
         current_year
         - years
@@ -675,10 +680,7 @@ def update_bloom(current_year):
 
 
     # Smoothstep easing:
-    #
-    # small bud
-    # -> opening
-    # -> full blossom
+    # small bud -> opening -> full blossom
 
     bloom_progress = (
         bloom_progress
@@ -792,9 +794,7 @@ def update_fall(fall_frame):
     )
 
 
-    # --------------------------------------------------
-    # INDIVIDUAL START DELAYS
-    # --------------------------------------------------
+    # Individual start delays
 
     local_progress = (
         global_progress
@@ -818,18 +818,14 @@ def update_fall(fall_frame):
     )
 
 
-    # --------------------------------------------------
-    # FALL ACCELERATION
-    # --------------------------------------------------
+    # Accelerating fall
 
     fall_amount = (
         local_progress ** 1.6
     )
 
 
-    # --------------------------------------------------
-    # VERTICAL MOVEMENT
-    # --------------------------------------------------
+    # Vertical movement
 
     current_y = (
         base_y
@@ -840,23 +836,13 @@ def update_fall(fall_frame):
 
 
     # --------------------------------------------------
-    # HORIZONTAL MOVEMENT
+    # CONTINUOUS HORIZONTAL MOVEMENT
     #
-    # Important:
+    # Subtracting sin(phase) makes the horizontal
+    # displacement start at exactly zero.
     #
-    # The previous version used:
-    #
-    # sin(progress + phase) * sway
-    #
-    # At progress = 0 this was not necessarily zero,
-    # which caused flowers to "jump" sideways when
-    # the animation changed from HOLD to FALL.
-    #
-    # Subtracting sin(phase) guarantees that the
-    # sway displacement starts at exactly zero.
-    #
-    # Multiplying by local_progress also makes the
-    # swaying motion grow gradually.
+    # This prevents flowers from jumping sideways
+    # when the animation changes from HOLD to FALL.
     # --------------------------------------------------
 
     sway_motion = (
@@ -890,9 +876,7 @@ def update_fall(fall_frame):
     )
 
 
-    # --------------------------------------------------
-    # FADE
-    # --------------------------------------------------
+    # Fade flowers near the end
 
     alpha = (
         0.88
@@ -910,9 +894,7 @@ def update_fall(fall_frame):
     )
 
 
-    # --------------------------------------------------
-    # SIZE
-    # --------------------------------------------------
+    # Slight size reduction
 
     sizes = (
         FULL_FLOWER_SIZE
@@ -938,10 +920,6 @@ def update_fall(fall_frame):
         )
     )
 
-
-    # Update the existing collection.
-    #
-    # No new flower objects are created.
 
     flowers.set_offsets(
         offsets
@@ -1089,24 +1067,42 @@ animation = FuncAnimation(
     fig,
     update,
     frames=TOTAL_FRAMES,
-
-    # Collection-based rendering is light enough
-    # to use a smoother refresh interval.
-
     interval=50,
-
     repeat=True,
-
-    # Avoid storing every rendered frame in memory.
-
     cache_frame_data=False
 )
 
 
 # --------------------------------------------------
-# SHOW
+# EXPORT GIF
 # --------------------------------------------------
 
 plt.tight_layout()
+
+print("")
+print("Exporting final animation...")
+print("Please wait. Do not close the terminal.")
+
+animation.save(
+    GIF_PATH,
+    writer=PillowWriter(
+        fps=20
+    ),
+
+    # Lower export DPI keeps the GIF practical
+    # for viewing directly on GitHub.
+    dpi=90
+)
+
+print("")
+print(
+    f"Saved animation to: {GIF_PATH}"
+)
+print("")
+
+
+# --------------------------------------------------
+# SHOW
+# --------------------------------------------------
 
 plt.show()

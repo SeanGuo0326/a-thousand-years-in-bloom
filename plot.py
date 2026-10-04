@@ -1,52 +1,53 @@
-
 # /// script
 # requires-python = ">=3.10"
 # dependencies = ["matplotlib", "numpy"]
 # ///
 
 """
-A Thousand Years in Bloom
+A Thousand Years in Bloom — Final Static Visualisation
 
-A generative data visualisation of Kyoto cherry blossom
-flowering dates from historical records.
+Each blossom represents one recorded year of
+cherry blossom full bloom in Kyoto.
 
-Run:
-    uv run plot.py
+Data mapping:
+- Year -> horizontal position
+- Full-bloom date -> vertical position
+- Full-bloom date -> blossom colour
 
 Output:
     out/plot.png
+
+Run:
+    uv run plot.py
 """
 
 import csv
 import math
-import random
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Ellipse, Circle
+from matplotlib.path import Path as MarkerPath
 
 
 # --------------------------------------------------
-# 1. FILE SETTINGS
+# FILE SETTINGS
 # --------------------------------------------------
 
 HERE = Path(__file__).parent
-
 DATA = HERE / "data" / "SakuraData4.csv"
-OUT = HERE / "out"
 
-PICTURE = "plot.png"
+OUTPUT_DIR = HERE / "out"
+OUTPUT_DIR.mkdir(exist_ok=True)
 
-random.seed(42)
+OUTPUT_PATH = OUTPUT_DIR / "plot.png"
 
 
 # --------------------------------------------------
-# 2. READ THE DATA
+# READ DATA
 # --------------------------------------------------
 
 def rows(path):
-
     records = []
 
     with path.open(
@@ -74,12 +75,10 @@ def rows(path):
             if not 1 <= flowering_day <= 366:
                 continue
 
-            records.append(
-                {
-                    "year": year,
-                    "flowering_day": flowering_day
-                }
-            )
+            records.append({
+                "year": year,
+                "flowering_day": flowering_day
+            })
 
     return sorted(
         records,
@@ -88,49 +87,75 @@ def rows(path):
 
 
 # --------------------------------------------------
-# 3. DRAW A SAKURA FLOWER
+# CREATE FIVE-PETAL FLOWER MARKER
 # --------------------------------------------------
 
-def draw_flower(ax, x, y, size, color, alpha=0.9):
+def flower_marker():
 
-    # Five petals
-    for i in range(5):
+    vertices = []
+    codes = []
 
-        angle = i * 72
+    points = 100
 
-        radians = math.radians(angle)
+    for i in range(points + 1):
 
-        px = x + math.cos(radians) * size * 0.28
-        py = y + math.sin(radians) * size * 0.28
-
-        petal = Ellipse(
-            (px, py),
-            width=size * 0.78,
-            height=size * 0.52,
-            angle=angle,
-            facecolor=color,
-            edgecolor="none",
-            alpha=alpha,
-            zorder=3
+        theta = (
+            i
+            / points
+            * math.tau
         )
 
-        ax.add_patch(petal)
+        radius = (
+            0.72
+            + 0.28
+            * math.cos(
+                5 * theta
+            )
+        )
 
-    # Flower centre
-    centre = Circle(
-        (x, y),
-        radius=size * 0.12,
-        facecolor="#f4c67a",
-        edgecolor="none",
-        alpha=alpha,
-        zorder=4
+        x = (
+            radius
+            * math.cos(theta)
+        )
+
+        y = (
+            radius
+            * math.sin(theta)
+        )
+
+        vertices.append(
+            (x, y)
+        )
+
+        if i == 0:
+            codes.append(
+                MarkerPath.MOVETO
+            )
+
+        else:
+            codes.append(
+                MarkerPath.LINETO
+            )
+
+    vertices.append(
+        vertices[0]
     )
 
-    ax.add_patch(centre)
+    codes.append(
+        MarkerPath.CLOSEPOLY
+    )
+
+    return MarkerPath(
+        vertices,
+        codes
+    )
+
+
+FLOWER_MARKER = flower_marker()
 
 
 # --------------------------------------------------
-# 4. MAIN VISUALISATION
+# MAIN
 # --------------------------------------------------
 
 def main():
@@ -142,29 +167,133 @@ def main():
             "No valid flowering records found."
         )
 
-    print(f"Loaded {len(records)} flowering records")
-
-    years = [
+    years = np.array([
         record["year"]
         for record in records
-    ]
+    ], dtype=float)
 
-    flowering_days = [
+    flowering_days = np.array([
         record["flowering_day"]
         for record in records
-    ]
+    ], dtype=float)
+
+
+    min_year = int(
+        years.min()
+    )
+
+    max_year = int(
+        years.max()
+    )
+
+    min_day = int(
+        flowering_days.min()
+    )
+
+    max_day = int(
+        flowering_days.max()
+    )
+
+
+    year_range = max(
+        max_year - min_year,
+        1
+    )
+
+    day_range = max(
+        max_day - min_day,
+        1
+    )
+
 
     print(
-        f"Years: {min(years)} to {max(years)}"
+        f"Loaded {len(records)} flowering records"
     )
 
     print(
-        f"Flowering days: "
-        f"{min(flowering_days)} to {max(flowering_days)}"
+        f"Years: {min_year} to {max_year}"
     )
+
+    print(
+        f"Flowering days: {min_day} to {max_day}"
+    )
+
 
     # --------------------------------------------------
-    # 5. CANVAS
+    # DATA -> HORIZONTAL POSITION
+    # --------------------------------------------------
+
+    x = (
+        (years - min_year)
+        / year_range
+    ) * 84 + 10
+
+
+    # --------------------------------------------------
+    # DATA -> VERTICAL POSITION
+    #
+    # Earlier flowering dates appear higher.
+    # Later flowering dates appear lower.
+    # --------------------------------------------------
+
+    y = (
+        1
+        - (
+            flowering_days - min_day
+        )
+        / day_range
+    ) * 60 + 18
+
+
+    # --------------------------------------------------
+    # DATA -> COLOUR
+    # --------------------------------------------------
+
+    normalized_day = (
+        flowering_days - min_day
+    ) / day_range
+
+
+    early_color = np.array([
+        0.98,
+        0.38,
+        0.55
+    ])
+
+
+    late_color = np.array([
+        1.00,
+        0.83,
+        0.89
+    ])
+
+
+    rgb_colors = (
+        early_color[None, :]
+        * (
+            1
+            - normalized_day[:, None]
+        )
+        + late_color[None, :]
+        * normalized_day[:, None]
+    )
+
+
+    # Add alpha channel.
+
+    colors = np.column_stack(
+        (
+            rgb_colors,
+            np.full(
+                len(records),
+                0.88
+            )
+        )
+    )
+
+
+    # --------------------------------------------------
+    # CANVAS
     # --------------------------------------------------
 
     fig, ax = plt.subplots(
@@ -172,207 +301,243 @@ def main():
         facecolor="#101322"
     )
 
-    ax.set_facecolor("#101322")
+    ax.set_facecolor(
+        "#101322"
+    )
 
-    # Horizontal axis: historical year
-    # Vertical axis: flowering day of the year
+    ax.set_xlim(
+        0,
+        100
+    )
 
-    min_year = min(years)
-    max_year = max(years)
+    ax.set_ylim(
+        0,
+        100
+    )
 
-    min_day = min(flowering_days)
-    max_day = max(flowering_days)
+    ax.set_aspect(
+        "equal",
+        adjustable="box"
+    )
 
-    year_range = max(max_year - min_year, 1)
-    day_range = max(max_day - min_day, 1)
+    ax.axis(
+        "off"
+    )
 
-    # --------------------------------------------------
-    # 6. BACKGROUND PARTICLES
-    # --------------------------------------------------
-
-    for _ in range(180):
-
-        x = random.uniform(0, 100)
-        y = random.uniform(0, 100)
-
-        ax.scatter(
-            x,
-            y,
-            s=random.uniform(1, 5),
-            color="#f7c6d9",
-            alpha=random.uniform(0.08, 0.3),
-            linewidths=0,
-            zorder=1
-        )
 
     # --------------------------------------------------
-    # 7. FLOWERING DATA
-    # --------------------------------------------------
-
-    for record in records:
-
-        year = record["year"]
-        flowering_day = record["flowering_day"]
-
-        # Map year to horizontal position
-        x = (
-            (year - min_year)
-            / year_range
-        ) * 90 + 5
-
-        # Map flowering day to vertical position
-        # Earlier flowering appears higher
-
-        y = (
-            1 -
-            (flowering_day - min_day)
-            / day_range
-        ) * 68 + 16
-
-        # Colour represents flowering time
-        # Earlier flowering: warmer pink
-        # Later flowering: lighter pink
-
-        normalized_day = (
-            (flowering_day - min_day)
-            / day_range
-        )
-
-        early_color = np.array(
-            [0.98, 0.38, 0.55]
-        )
-
-        late_color = np.array(
-            [1.0, 0.83, 0.89]
-        )
-
-        color = (
-            early_color * (1 - normalized_day)
-            + late_color * normalized_day
-        )
-
-        # Flower size
-        size = 0.65
-
-        draw_flower(
-            ax,
-            x,
-            y,
-            size,
-            color,
-            alpha=0.88
-        )
-
-    # --------------------------------------------------
-    # 8. TITLE AND LABELS
+    # TITLE
     # --------------------------------------------------
 
     ax.text(
         50,
-        94,
+        95,
         "A THOUSAND YEARS IN BLOOM",
         color="#ffe5ed",
         fontsize=25,
-        fontweight="light",
         ha="center",
         va="center"
     )
+
 
     ax.text(
         50,
-        88,
-        "A visual history of Kyoto's cherry blossoms",
+        90,
+        "Kyoto cherry blossom full-bloom records · 812–2015",
         color="#d8b8c9",
-        fontsize=12,
+        fontsize=11,
         ha="center",
         va="center"
     )
 
-    # Year labels
-    for year in np.linspace(
+
+    # --------------------------------------------------
+    # LEGEND
+    # --------------------------------------------------
+
+    ax.scatter(
+        [29],
+        [84],
+        s=[55],
+        marker=FLOWER_MARKER,
+        c=["#ff8eaa"],
+        edgecolors="none",
+        zorder=3
+    )
+
+
+    ax.text(
+        31,
+        84,
+        "Each blossom = one recorded year of full bloom",
+        color="#d8b8c9",
+        fontsize=9,
+        ha="left",
+        va="center"
+    )
+
+
+    # --------------------------------------------------
+    # VERTICAL DATA GUIDE
+    # --------------------------------------------------
+
+    ax.plot(
+        [6, 6],
+        [18, 78],
+        color="#65596d",
+        linewidth=0.8,
+        alpha=0.7,
+        zorder=1
+    )
+
+
+    ax.annotate(
+        "",
+        xy=(6, 79),
+        xytext=(6, 76),
+        arrowprops=dict(
+            arrowstyle="->",
+            color="#ff829e",
+            linewidth=1
+        )
+    )
+
+
+    ax.text(
+        3.8,
+        76,
+        "EARLIER",
+        color="#ff829e",
+        fontsize=8,
+        rotation=90,
+        ha="center",
+        va="center"
+    )
+
+
+    ax.text(
+        3.8,
+        22,
+        "LATER",
+        color="#f4c9d8",
+        fontsize=8,
+        rotation=90,
+        ha="center",
+        va="center"
+    )
+
+
+    ax.text(
+        1.8,
+        49,
+        "FULL-BLOOM DATE",
+        color="#8f8299",
+        fontsize=7,
+        rotation=90,
+        ha="center",
+        va="center"
+    )
+
+
+    # --------------------------------------------------
+    # HISTORICAL YEAR GUIDE
+    # --------------------------------------------------
+
+    for guide_year in np.linspace(
         min_year,
         max_year,
         5
     ):
 
-        x = (
-            (year - min_year)
+        guide_x = (
+            (guide_year - min_year)
             / year_range
-        ) * 90 + 5
+        ) * 84 + 10
+
 
         ax.text(
-            x,
-            8,
-            str(int(year)),
-            color="#b7a8bc",
-            fontsize=10,
-            ha="center"
+            guide_x,
+            13,
+            str(int(guide_year)),
+            color="#766d80",
+            fontsize=8,
+            ha="center",
+            va="center"
         )
+
+
+    # --------------------------------------------------
+    # DATA FLOWERS
+    # --------------------------------------------------
+
+    ax.scatter(
+        x,
+        y,
+        s=np.full(
+            len(records),
+            30
+        ),
+        marker=FLOWER_MARKER,
+        c=colors,
+        edgecolors="none",
+        zorder=3
+    )
+
+
+    # --------------------------------------------------
+    # FINAL STATE LABEL
+    # --------------------------------------------------
 
     ax.text(
         50,
-        3,
-        "HISTORICAL YEAR",
-        color="#b7a8bc",
-        fontsize=10,
-        ha="center"
-    )
-
-    ax.text(
-        2,
-        75,
-        "EARLIER BLOOM",
-        color="#ff829e",
-        fontsize=9,
-        rotation=90,
+        8,
+        "A THOUSAND YEARS IN BLOOM",
+        color="#8f8299",
+        fontsize=8,
+        ha="center",
         va="center"
     )
 
+
     ax.text(
-        2,
-        20,
-        "LATER BLOOM",
-        color="#f4c9d8",
-        fontsize=9,
-        rotation=90,
+        50,
+        4.5,
+        str(max_year),
+        color="#ffe5ed",
+        fontsize=18,
+        ha="center",
         va="center"
     )
 
-    # --------------------------------------------------
-    # 9. FINAL LAYOUT
-    # --------------------------------------------------
-
-    ax.set_xlim(0, 100)
-    ax.set_ylim(0, 100)
-
-    ax.set_aspect("equal", adjustable="box")
-
-    ax.axis("off")
-
-    fig.tight_layout()
 
     # --------------------------------------------------
-    # 10. SAVE THE PICTURE
+    # SAVE
     # --------------------------------------------------
 
-    OUT.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    plt.tight_layout()
 
-    output_path = OUT / PICTURE
 
     fig.savefig(
-        output_path,
-        dpi=200,
+        OUTPUT_PATH,
+        dpi=180,
         facecolor=fig.get_facecolor(),
         bbox_inches="tight"
     )
 
-    print(f"Saved: {output_path}")
+
+    print("")
+    print(
+        f"Saved final visualisation to: {OUTPUT_PATH}"
+    )
+    print("")
+
 
     plt.show()
 
+
+# --------------------------------------------------
+# RUN
+# --------------------------------------------------
 
 if __name__ == "__main__":
     main()
