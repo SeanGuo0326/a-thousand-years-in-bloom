@@ -4,17 +4,25 @@
 # ///
 
 """
-A Thousand Years in Bloom — Timeline Animation
+A Thousand Years in Bloom — Optimised Timeline Animation
 
 Each blossom represents one recorded year of
 cherry blossom full bloom in Kyoto.
 
-Animation structure:
-1. Bloom — historical records appear from 812 to 2015
-2. Hold — the complete thousand-year picture remains visible
-3. Fall — all blossoms rotate and fall
-4. Empty — a short pause
-5. Loop — history begins again
+Data mapping:
+- Year -> horizontal position
+- Full-bloom date -> vertical position and colour
+
+Animation:
+1. Historical records bloom from 812 to 2015
+2. The complete dataset remains visible
+3. Blossoms fall away
+4. The animation restarts
+
+Performance optimisation:
+Instead of creating thousands of individual
+Ellipse patches every frame, blossoms are rendered
+with one reusable scatter collection.
 
 Run:
     uv run animate.py
@@ -28,7 +36,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Ellipse, Circle
+from matplotlib.path import Path as MarkerPath
 
 
 # --------------------------------------------------
@@ -83,68 +91,70 @@ def rows(path):
 
 
 # --------------------------------------------------
-# DRAW FLOWER
+# CREATE FIVE-PETAL FLOWER MARKER
 # --------------------------------------------------
 
-def draw_flower(
-    ax,
-    x,
-    y,
-    size,
-    color,
-    alpha=0.9,
-    rotation=0,
-    mark_as_data=False
-):
+def flower_marker():
 
-    for i in range(5):
+    vertices = []
+    codes = []
 
-        angle = i * 72 + rotation
-        radians = math.radians(angle)
+    points = 100
 
-        px = (
-            x
-            + math.cos(radians)
-            * size
-            * 0.28
+    for i in range(points + 1):
+
+        theta = (
+            i
+            / points
+            * math.tau
         )
 
-        py = (
-            y
-            + math.sin(radians)
-            * size
-            * 0.28
+        radius = (
+            0.72
+            + 0.28
+            * math.cos(
+                5 * theta
+            )
         )
 
-        petal = Ellipse(
-            (px, py),
-            width=size * 0.78,
-            height=size * 0.52,
-            angle=angle,
-            facecolor=color,
-            edgecolor="none",
-            alpha=alpha,
-            zorder=3
+        x = (
+            radius
+            * math.cos(theta)
         )
 
-        if mark_as_data:
-            petal._is_data_flower = True
+        y = (
+            radius
+            * math.sin(theta)
+        )
 
-        ax.add_patch(petal)
+        vertices.append(
+            (x, y)
+        )
 
-    centre = Circle(
-        (x, y),
-        radius=size * 0.12,
-        facecolor="#f4c67a",
-        edgecolor="none",
-        alpha=alpha,
-        zorder=4
+        if i == 0:
+            codes.append(
+                MarkerPath.MOVETO
+            )
+        else:
+            codes.append(
+                MarkerPath.LINETO
+            )
+
+    vertices.append(
+        vertices[0]
     )
 
-    if mark_as_data:
-        centre._is_data_flower = True
+    codes.append(
+        MarkerPath.CLOSEPOLY
+    )
 
-    ax.add_patch(centre)
+    return MarkerPath(
+        vertices,
+        codes
+    )
+
+
+FLOWER_MARKER = flower_marker()
 
 
 # --------------------------------------------------
@@ -158,21 +168,35 @@ if not records:
         "No valid flowering records found."
     )
 
-years = [
+
+years = np.array([
     record["year"]
     for record in records
-]
+], dtype=float)
 
-flowering_days = [
+
+flowering_days = np.array([
     record["flowering_day"]
     for record in records
-]
+], dtype=float)
 
-min_year = min(years)
-max_year = max(years)
 
-min_day = min(flowering_days)
-max_day = max(flowering_days)
+min_year = int(
+    years.min()
+)
+
+max_year = int(
+    years.max()
+)
+
+min_day = int(
+    flowering_days.min()
+)
+
+max_day = int(
+    flowering_days.max()
+)
+
 
 year_range = max(
     max_year - min_year,
@@ -184,6 +208,7 @@ day_range = max(
     1
 )
 
+
 print(
     f"Loaded {len(records)} flowering records"
 )
@@ -193,21 +218,40 @@ print(
 )
 
 print(
-    f"Flowering days: "
-    f"{min_day} to {max_day}"
+    f"Flowering days: {min_day} to {max_day}"
 )
 
 
 # --------------------------------------------------
-# PREPARE FLOWER DATA
+# DATA MAPPING
 # --------------------------------------------------
 
-# Fixed seed keeps the decorative falling motion
-# consistent every time the program runs.
+# Historical year -> horizontal position
 
-random.seed(42)
+base_x = (
+    (years - min_year)
+    / year_range
+) * 84 + 10
 
-prepared_records = []
+
+# Full-bloom date -> vertical position
+# Earlier dates appear higher.
+
+base_y = (
+    1
+    - (
+        flowering_days - min_day
+    )
+    / day_range
+) * 60 + 18
+
+
+# Full-bloom date -> colour
+
+normalized_day = (
+    flowering_days - min_day
+) / day_range
+
 
 early_color = np.array([
     0.98,
@@ -215,110 +259,80 @@ early_color = np.array([
     0.55
 ])
 
+
 late_color = np.array([
-    1.0,
+    1.00,
     0.83,
     0.89
 ])
 
 
-for record in records:
-
-    year = record["year"]
-    flowering_day = record["flowering_day"]
-
-    # ----------------------------------------------
-    # DATA → HORIZONTAL POSITION
-    #
-    # Earlier historical records appear on the left.
-    # Later records appear on the right.
-    # ----------------------------------------------
-
-    x = (
-        (year - min_year)
-        / year_range
-    ) * 84 + 10
-
-    # ----------------------------------------------
-    # DATA → VERTICAL POSITION
-    #
-    # Earlier flowering dates appear higher.
-    # Later flowering dates appear lower.
-    # ----------------------------------------------
-
-    y = (
-        1 -
-        (flowering_day - min_day)
-        / day_range
-    ) * 60 + 18
-
-    # ----------------------------------------------
-    # DATA → COLOUR
-    # ----------------------------------------------
-
-    normalized_day = (
-        (flowering_day - min_day)
-        / day_range
+rgb_colors = (
+    early_color[None, :]
+    * (
+        1
+        - normalized_day[:, None]
     )
+    + late_color[None, :]
+    * normalized_day[:, None]
+)
 
-    color = (
-        early_color
-        * (1 - normalized_day)
-        + late_color
-        * normalized_day
-    )
 
-    # ----------------------------------------------
-    # DECORATIVE FALL PARAMETERS
-    #
-    # These values DO NOT represent historical data.
-    # They are used only to make the final transition
-    # feel organic.
-    # ----------------------------------------------
+# --------------------------------------------------
+# FALLING PARAMETERS
+# --------------------------------------------------
 
-    fall_speed = random.uniform(
+# These parameters are decorative.
+# They do NOT represent historical data.
+
+random.seed(42)
+
+count = len(records)
+
+
+fall_speed = np.array([
+    random.uniform(
         0.88,
         1.18
     )
+    for _ in range(count)
+])
 
-    drift = random.uniform(
+
+drift = np.array([
+    random.uniform(
         -7,
         7
     )
+    for _ in range(count)
+])
 
-    sway = random.uniform(
+
+sway = np.array([
+    random.uniform(
         0.5,
         1.7
     )
+    for _ in range(count)
+])
 
-    phase = random.uniform(
+
+phase = np.array([
+    random.uniform(
         0,
         math.tau
     )
+    for _ in range(count)
+])
 
-    spin = random.uniform(
-        -200,
-        200
-    )
 
-    delay = random.uniform(
+delay = np.array([
+    random.uniform(
         0,
         0.15
     )
-
-    prepared_records.append({
-        "year": year,
-        "flowering_day": flowering_day,
-        "x": x,
-        "y": y,
-        "color": color,
-        "fall_speed": fall_speed,
-        "drift": drift,
-        "sway": sway,
-        "phase": phase,
-        "spin": spin,
-        "delay": delay
-    })
+    for _ in range(count)
+])
 
 
 # --------------------------------------------------
@@ -368,6 +382,7 @@ ax.text(
     va="center"
 )
 
+
 ax.text(
     50,
     90,
@@ -383,14 +398,16 @@ ax.text(
 # LEGEND
 # --------------------------------------------------
 
-draw_flower(
-    ax,
-    29,
-    84,
-    0.75,
-    "#ff8eaa",
-    alpha=0.95
+ax.scatter(
+    [29],
+    [84],
+    s=[55],
+    marker=FLOWER_MARKER,
+    c=["#ff8eaa"],
+    edgecolors="none",
+    zorder=3
 )
+
 
 ax.text(
     31,
@@ -416,6 +433,7 @@ ax.plot(
     zorder=1
 )
 
+
 ax.annotate(
     "",
     xy=(6, 79),
@@ -426,6 +444,7 @@ ax.annotate(
         linewidth=1
     )
 )
+
 
 ax.text(
     3.8,
@@ -438,6 +457,7 @@ ax.text(
     va="center"
 )
 
+
 ax.text(
     3.8,
     22,
@@ -448,6 +468,7 @@ ax.text(
     ha="center",
     va="center"
 )
+
 
 ax.text(
     1.8,
@@ -465,21 +486,21 @@ ax.text(
 # HISTORICAL YEAR GUIDE
 # --------------------------------------------------
 
-for year in np.linspace(
+for guide_year in np.linspace(
     min_year,
     max_year,
     5
 ):
 
-    x = (
-        (year - min_year)
+    guide_x = (
+        (guide_year - min_year)
         / year_range
     ) * 84 + 10
 
     ax.text(
-        x,
+        guide_x,
         13,
-        str(int(year)),
+        str(int(guide_year)),
         color="#766d80",
         fontsize=8,
         ha="center",
@@ -501,6 +522,7 @@ history_label = ax.text(
     va="center"
 )
 
+
 year_text = ax.text(
     50,
     4.5,
@@ -513,20 +535,67 @@ year_text = ax.text(
 
 
 # --------------------------------------------------
+# ANIMATED FLOWER COLLECTION
+# --------------------------------------------------
+
+initial_offsets = np.column_stack(
+    (
+        base_x,
+        base_y
+    )
+)
+
+
+initial_sizes = np.zeros(
+    count
+)
+
+
+initial_colors = np.column_stack(
+    (
+        rgb_colors,
+        np.zeros(count)
+    )
+)
+
+
+# All 827 flowers are contained inside ONE
+# reusable scatter collection.
+
+flowers = ax.scatter(
+    base_x,
+    base_y,
+    s=initial_sizes,
+    marker=FLOWER_MARKER,
+    c=initial_colors,
+    edgecolors="none",
+    zorder=3
+)
+
+
+# --------------------------------------------------
 # ANIMATION SETTINGS
 # --------------------------------------------------
 
-# Timeline growth
+# Historical timeline
+
 GROW_FRAMES = 150
 
-# Pause at the completed 2015 visualisation
+
+# Complete dataset pause
+
 HOLD_FRAMES = 25
 
-# Falling transition
+
+# Falling animation
+
 FALL_FRAMES = 70
 
-# Empty pause before restarting
+
+# Empty pause before restart
+
 EMPTY_FRAMES = 15
+
 
 TOTAL_FRAMES = (
     GROW_FRAMES
@@ -535,129 +604,184 @@ TOTAL_FRAMES = (
     + EMPTY_FRAMES
 )
 
+
 # Visual bloom duration.
 # This is an animation timing parameter,
 # not a biological measurement.
 
 BLOOM_YEARS = 38
 
-FULL_FLOWER_SIZE = 0.62
-START_FLOWER_SIZE = 0.10
+
+# Scatter marker size uses points squared.
+
+FULL_FLOWER_SIZE = 30
+
+START_FLOWER_SIZE = 1
 
 
 # --------------------------------------------------
-# REMOVE ANIMATED FLOWERS
+# HIDE FLOWERS
 # --------------------------------------------------
 
-def clear_data_flowers():
+def hide_flowers():
 
-    animated_patches = [
-        patch
-        for patch in ax.patches
-        if getattr(
-            patch,
-            "_is_data_flower",
-            False
+    flowers.set_sizes(
+        np.zeros(count)
+    )
+
+    hidden_colors = np.column_stack(
+        (
+            rgb_colors,
+            np.zeros(count)
         )
-    ]
+    )
 
-    for patch in animated_patches:
-        patch.remove()
+    flowers.set_facecolors(
+        hidden_colors
+    )
 
 
 # --------------------------------------------------
-# BLOOM TIMELINE
+# PHASE 1 — TIMELINE BLOOM
 # --------------------------------------------------
 
-def draw_timeline(current_year):
+def update_bloom(current_year):
 
-    for record in prepared_records:
+    # Age of every historical record
+    # relative to the current year.
 
-        if record["year"] > current_year:
-            break
+    age = (
+        current_year
+        - years
+    )
 
-        age = (
-            current_year
-            - record["year"]
+
+    visible = (
+        age >= 0
+    )
+
+
+    bloom_progress = (
+        age
+        / BLOOM_YEARS
+    )
+
+
+    bloom_progress = np.clip(
+        bloom_progress,
+        0,
+        1
+    )
+
+
+    # Smoothstep easing:
+    #
+    # small bud
+    # -> opening
+    # -> full blossom
+
+    bloom_progress = (
+        bloom_progress
+        * bloom_progress
+        * (
+            3
+            - 2 * bloom_progress
         )
+    )
 
-        bloom_progress = (
-            age
-            / BLOOM_YEARS
+
+    sizes = (
+        START_FLOWER_SIZE
+        + (
+            FULL_FLOWER_SIZE
+            - START_FLOWER_SIZE
         )
+        * bloom_progress
+    )
 
-        bloom_progress = min(
-            max(
-                bloom_progress,
-                0
-            ),
-            1
+
+    sizes = np.where(
+        visible,
+        sizes,
+        0
+    )
+
+
+    alpha = (
+        0.35
+        + 0.53
+        * bloom_progress
+    )
+
+
+    alpha = np.where(
+        visible,
+        alpha,
+        0
+    )
+
+
+    colors = np.column_stack(
+        (
+            rgb_colors,
+            alpha
         )
+    )
 
-        # Smoothstep easing:
-        # small bud → opening → full blossom
 
-        bloom_progress = (
-            bloom_progress
-            * bloom_progress
-            * (
-                3
-                - 2 * bloom_progress
+    flowers.set_offsets(
+        initial_offsets
+    )
+
+    flowers.set_sizes(
+        sizes
+    )
+
+    flowers.set_facecolors(
+        colors
+    )
+
+
+# --------------------------------------------------
+# PHASE 2 — FULL BLOOM
+# --------------------------------------------------
+
+def update_full_bloom():
+
+    flowers.set_offsets(
+        initial_offsets
+    )
+
+
+    flowers.set_sizes(
+        np.full(
+            count,
+            FULL_FLOWER_SIZE
+        )
+    )
+
+
+    colors = np.column_stack(
+        (
+            rgb_colors,
+            np.full(
+                count,
+                0.88
             )
         )
+    )
 
-        size = (
-            START_FLOWER_SIZE
-            + (
-                FULL_FLOWER_SIZE
-                - START_FLOWER_SIZE
-            )
-            * bloom_progress
-        )
 
-        alpha = (
-            0.35
-            + 0.53
-            * bloom_progress
-        )
-
-        draw_flower(
-            ax,
-            record["x"],
-            record["y"],
-            size,
-            record["color"],
-            alpha=alpha,
-            rotation=0,
-            mark_as_data=True
-        )
+    flowers.set_facecolors(
+        colors
+    )
 
 
 # --------------------------------------------------
-# FULL BLOOM
+# PHASE 3 — FALLING FLOWERS
 # --------------------------------------------------
 
-def draw_full_bloom():
-
-    for record in prepared_records:
-
-        draw_flower(
-            ax,
-            record["x"],
-            record["y"],
-            FULL_FLOWER_SIZE,
-            record["color"],
-            alpha=0.88,
-            rotation=0,
-            mark_as_data=True
-        )
-
-
-# --------------------------------------------------
-# FALLING FLOWERS
-# --------------------------------------------------
-
-def draw_falling(fall_frame):
+def update_fall(fall_frame):
 
     global_progress = (
         fall_frame
@@ -667,106 +791,169 @@ def draw_falling(fall_frame):
         )
     )
 
-    for record in prepared_records:
 
-        # Each flower starts falling at a slightly
-        # different moment.
+    # --------------------------------------------------
+    # INDIVIDUAL START DELAYS
+    # --------------------------------------------------
 
-        local_progress = (
-            global_progress
-            - record["delay"]
-        )
+    local_progress = (
+        global_progress
+        - delay
+    )
 
-        local_progress = (
-            local_progress
-            / (
-                1
-                - record["delay"]
-            )
-        )
 
-        local_progress = min(
-            max(
-                local_progress,
-                0
-            ),
+    local_progress = (
+        local_progress
+        / (
             1
+            - delay
         )
+    )
 
-        # Accelerating downward movement
 
-        fall_amount = (
-            local_progress ** 1.6
-        )
+    local_progress = np.clip(
+        local_progress,
+        0,
+        1
+    )
 
-        # Vertical movement
 
-        y = (
-            record["y"]
-            - 105
-            * fall_amount
-            * record["fall_speed"]
-        )
+    # --------------------------------------------------
+    # FALL ACCELERATION
+    # --------------------------------------------------
 
-        # Horizontal drift and gentle sway
+    fall_amount = (
+        local_progress ** 1.6
+    )
 
-        x = (
-            record["x"]
-            + record["drift"]
-            * fall_amount
-            + math.sin(
+
+    # --------------------------------------------------
+    # VERTICAL MOVEMENT
+    # --------------------------------------------------
+
+    current_y = (
+        base_y
+        - 105
+        * fall_amount
+        * fall_speed
+    )
+
+
+    # --------------------------------------------------
+    # HORIZONTAL MOVEMENT
+    #
+    # Important:
+    #
+    # The previous version used:
+    #
+    # sin(progress + phase) * sway
+    #
+    # At progress = 0 this was not necessarily zero,
+    # which caused flowers to "jump" sideways when
+    # the animation changed from HOLD to FALL.
+    #
+    # Subtracting sin(phase) guarantees that the
+    # sway displacement starts at exactly zero.
+    #
+    # Multiplying by local_progress also makes the
+    # swaying motion grow gradually.
+    # --------------------------------------------------
+
+    sway_motion = (
+        (
+            np.sin(
                 local_progress
                 * math.tau
                 * 2
-                + record["phase"]
+                + phase
             )
-            * record["sway"]
+            - np.sin(phase)
         )
+        * sway
+        * local_progress
+    )
 
-        # Rotation
 
-        rotation = (
-            record["spin"]
+    current_x = (
+        base_x
+        + drift
+        * fall_amount
+        + sway_motion
+    )
+
+
+    offsets = np.column_stack(
+        (
+            current_x,
+            current_y
+        )
+    )
+
+
+    # --------------------------------------------------
+    # FADE
+    # --------------------------------------------------
+
+    alpha = (
+        0.88
+        * (
+            1
+            - local_progress ** 3
+        )
+    )
+
+
+    alpha = np.where(
+        current_y < -5,
+        0,
+        alpha
+    )
+
+
+    # --------------------------------------------------
+    # SIZE
+    # --------------------------------------------------
+
+    sizes = (
+        FULL_FLOWER_SIZE
+        * (
+            1
+            - 0.10
             * local_progress
         )
+    )
 
-        # Gradually fade near the end
 
-        alpha = (
-            0.88
-            * (
-                1
-                - local_progress ** 3
-            )
+    sizes = np.where(
+        current_y < -5,
+        0,
+        sizes
+    )
+
+
+    colors = np.column_stack(
+        (
+            rgb_colors,
+            alpha
         )
+    )
 
-        # Slight size reduction
 
-        size = (
-            FULL_FLOWER_SIZE
-            * (
-                1
-                - 0.10
-                * local_progress
-            )
-        )
+    # Update the existing collection.
+    #
+    # No new flower objects are created.
 
-        # Skip flowers that have already
-        # fallen below the canvas.
+    flowers.set_offsets(
+        offsets
+    )
 
-        if y < -5:
-            continue
+    flowers.set_sizes(
+        sizes
+    )
 
-        draw_flower(
-            ax,
-            x,
-            y,
-            size,
-            record["color"],
-            alpha=alpha,
-            rotation=rotation,
-            mark_as_data=True
-        )
+    flowers.set_facecolors(
+        colors
+    )
 
 
 # --------------------------------------------------
@@ -774,8 +961,6 @@ def draw_falling(fall_frame):
 # --------------------------------------------------
 
 def update(frame):
-
-    clear_data_flowers()
 
     # ==============================================
     # PHASE 1 — BLOOM
@@ -791,15 +976,18 @@ def update(frame):
             )
         )
 
+
         current_year = (
             min_year
             + progress
             * year_range
         )
 
+
         history_label.set_text(
             "HISTORY IN BLOOM"
         )
+
 
         year_text.set_text(
             str(
@@ -807,12 +995,14 @@ def update(frame):
             )
         )
 
-        draw_timeline(
+
+        update_bloom(
             current_year
         )
 
+
     # ==============================================
-    # PHASE 2 — HOLD
+    # PHASE 2 — FULL BLOOM / HOLD
     # ==============================================
 
     elif frame < (
@@ -824,11 +1014,14 @@ def update(frame):
             "A THOUSAND YEARS IN BLOOM"
         )
 
+
         year_text.set_text(
             str(max_year)
         )
 
-        draw_full_bloom()
+
+        update_full_bloom()
+
 
     # ==============================================
     # PHASE 3 — FALL
@@ -846,17 +1039,21 @@ def update(frame):
             - HOLD_FRAMES
         )
 
+
         history_label.set_text(
             "SEASONS PASS"
         )
+
 
         year_text.set_text(
             ""
         )
 
-        draw_falling(
+
+        update_fall(
             fall_frame
         )
+
 
     # ==============================================
     # PHASE 4 — EMPTY
@@ -868,9 +1065,20 @@ def update(frame):
             "HISTORY BEGINS AGAIN"
         )
 
+
         year_text.set_text(
             ""
         )
+
+
+        hide_flowers()
+
+
+    return (
+        flowers,
+        history_label,
+        year_text
+    )
 
 
 # --------------------------------------------------
@@ -882,14 +1090,15 @@ animation = FuncAnimation(
     update,
     frames=TOTAL_FRAMES,
 
-    # Slightly lower refresh frequency reduces
-    # the rendering load when hundreds of flowers
-    # are visible at the same time.
-    interval=80,
+    # Collection-based rendering is light enough
+    # to use a smoother refresh interval.
+
+    interval=50,
 
     repeat=True,
 
     # Avoid storing every rendered frame in memory.
+
     cache_frame_data=False
 )
 
